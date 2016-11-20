@@ -20,7 +20,7 @@ node app.js soql:"Select Id, Name, Industry, (Select Status, Origin, Subject Fro
 You can also use a query that is saved in a file
 
 ```
-node app.js soql:querys.json -f prefix:"testing-"
+node app.js soql:querys.json prefix:"testing-"
 ```
 
 To generate a single sObject tree:
