@@ -4,7 +4,7 @@
     "saveRefs": true,
     "resolveRefs": true,
     "files": [
-      "testing_Accounts.json"
+      "Accounts.json"
     ]
   },
   {
@@ -12,7 +12,7 @@
     "saveRefs": true,
     "resolveRefs": true,
     "files": [
-      "testing_Cases.json"
+      "Cases.json"
     ]
   },
   {
@@ -20,7 +20,7 @@
     "saveRefs": true,
     "resolveRefs": true,
     "files": [
-      "testing_Contacts.json"
+      "Contacts.json"
     ]
   }
 ]

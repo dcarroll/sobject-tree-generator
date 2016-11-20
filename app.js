@@ -24,8 +24,7 @@ Select Id, Name, Industry, (Select Status, Origin, Subject From Cases), (Select 
 */
 var main = function() {
   mapifyArgs();
-  if ( (args.soql && args.f) || 
-       (args.soql && args.p) ) {
+  if (args.soql) {
     if (args.soql.toLowerCase().trim().indexOf("select") !== 0) {
       dataObj = require(`${path.resolve(args.soql)}`);
       if (dataObj.soql) {
@@ -132,9 +131,14 @@ var getReferenceTo = function(objectName, fieldName) {
 var processObjectList = function(rootObj) {
   getObjectsIncludedInData(rootObj);
   var cobj = doRefReplace(processObjectArray(rootObj).records);
-  console.log(JSON.stringify(cobj, null, 2));
-  if (args.p) {
+  if (typeof args.f === "undefined") {
     splitIntoFiles(cobj);
+  } else {
+    var fName = Object.keys(dataObjects).join("_");
+    if (args.prefix) {
+      fName = args.prefix + fName;
+    }
+    writeFile(fName, cobj);
   }
 }
 
@@ -201,7 +205,7 @@ var splitIntoFiles = function(cObj) {
   Object.keys(objects).forEach(function(key) {
     dataPlan.push(addDataPlanPart(key, true, true, key + "s.json", objects[key]));
   });
-  if (args.prefix) {
+  if (args.prefix) {  
     writeFile(args.prefix + "data-plan.json", dataPlan);
   } else {
     writeFile("data-plan.json", dataPlan);
