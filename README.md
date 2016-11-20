@@ -29,9 +29,7 @@ To generate a single sObject tree:
 node app.js soql:querys.json -f prefix:"testing-"
 ```
 
-This will execute the query and transform the JSON query results into an SObject tree for use by the heroku force:data:import command of the SFDX CLI to import data into a scratch org.
-
-There are currently two formats, "files" and "plan".  
+This will execute the query and transform the JSON query results into an sObject tree for use by the heroku force:data:import command of the SFDX CLI to import data into a scratch org.
 
 ## Limitations
 Needs more testing!!!
