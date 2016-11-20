@@ -241,7 +241,6 @@ var addDataPlanPart = function(type, saveRefs, resolveRefs, fileName, sObject) {
 
 var doRefReplace = function(cObj) {
   cObj.forEach(function(obj) {
-    //console.log(cObj[0].attributes.type);
     for (var key in obj) {
       if (obj[key].records) {
         // These are children
@@ -252,21 +251,20 @@ var doRefReplace = function(cObj) {
         var reference = isReference(objType, key);
         if (reference) {
           var refTo = getReferenceTo(objType, key);
+          var id = obj[key];
+          var ref = mapOfRefObjects[refTo][id];
+
+          // Setup dependency ordering for later output
           if(dataObjects[objType].order <= dataObjects[refTo].order) {
             dataObjects[objType].order = dataObjects[refTo].order + 1;
             dataObjects[refTo].saveRefs = true;
             dataObjects[objType].resolveRefs = true;
           }
-        }
-        if (fieldValue.indexOf("@") !== 0) {
-          if (reference) {
-            var refTo = getReferenceTo(objType, key);
-            var id = obj[key];
-            var ref = mapOfRefObjects[refTo][id];
+
+          // Make sure this reference field does not already hava a reference
+          if (fieldValue.indexOf("@") !== 0) {
             obj[key] = "@" + ref;
           }
-        } else {
-          //delete obj[key];
         }
       }
     }
