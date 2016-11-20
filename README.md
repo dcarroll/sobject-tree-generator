@@ -34,5 +34,4 @@ This will execute the query and transform the JSON query results into an SObject
 There are currently two formats, "files" and "plan".  
 
 ## Limitations
-Right now, if you return more than two SObject (parent and children) all the children will be parented only to the parent. There are situations where a child can be the child of multiple parents, and only one releationship is established.
-For instance the Case object can be the child of both Account and Contact at the same time.  The SOQL statement given in the sample above will related the Contacts correctly to the Account and the Case correctly to the Account but will not relate the Cases to the Contacts.
+Needs more testing!!!
