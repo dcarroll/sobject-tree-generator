@@ -2,17 +2,9 @@
   {
     "sobject": "Account",
     "saveRefs": true,
-    "resolveRefs": true,
+    "resolveRefs": false,
     "files": [
       "Accounts.json"
-    ]
-  },
-  {
-    "sobject": "Case",
-    "saveRefs": true,
-    "resolveRefs": true,
-    "files": [
-      "Cases.json"
     ]
   },
   {
@@ -21,6 +13,14 @@
     "resolveRefs": true,
     "files": [
       "Contacts.json"
+    ]
+  },
+  {
+    "sobject": "Case",
+    "saveRefs": false,
+    "resolveRefs": true,
+    "files": [
+      "Cases.json"
     ]
   }
 ]

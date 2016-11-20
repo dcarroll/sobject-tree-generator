@@ -144,7 +144,12 @@ var processObjectList = function(rootObj) {
 
 var getObjectsIncludedInData = function(rootObj) {
   // Scan the data set, we only need to scan the top level
-  dataObjects[rootObj[0].attributes.type] = rootObj[0].attributes.type;
+  dataObjects[rootObj[0].attributes.type] = { 
+    order: 0, 
+    type: rootObj[0].attributes.type,
+    saveRefs: true,
+    resolveRefs: false
+  };
   for (var i=0;i<rootObj.length;i++) {
     var record = rootObj[i];
     for (var key in record) {
@@ -152,7 +157,12 @@ var getObjectsIncludedInData = function(rootObj) {
         if (record[key].records) {
           // Found a related object, add to map
           if (!dataObjects[key]) {
-            dataObjects[record[key].records[0].attributes.type] = record[key].records[0].attributes.type;
+            dataObjects[record[key].records[0].attributes.type] = { 
+              order: 1, 
+              type: record[key].records[0].attributes.type,
+              saveRefs: false,
+              resolveRefs: true
+            };
           }
         }
       }
@@ -202,8 +212,12 @@ var splitIntoFiles = function(cObj) {
     objects[masterType].records.push(masterRecord);
   });
 
-  Object.keys(objects).forEach(function(key) {
-    dataPlan.push(addDataPlanPart(key, true, true, key + "s.json", objects[key]));
+  var objectsOrdered =  Object.keys(dataObjects).sort(function(a,b){
+    return dataObjects[a].order - dataObjects[b].order 
+  });
+  
+  objectsOrdered.forEach(function(key) {
+    dataPlan.push(addDataPlanPart(key, dataObjects[key].saveRefs, dataObjects[key].resolveRefs, key + "s.json", objects[key]));
   });
   if (args.prefix) {  
     writeFile(args.prefix + "data-plan.json", dataPlan);
@@ -227,15 +241,26 @@ var addDataPlanPart = function(type, saveRefs, resolveRefs, fileName, sObject) {
 
 var doRefReplace = function(cObj) {
   cObj.forEach(function(obj) {
+    //console.log(cObj[0].attributes.type);
     for (var key in obj) {
       if (obj[key].records) {
         // These are children
         doRefReplace(obj[key].records);
       } else {
         var fieldValue = obj[key].toString();
+        var objType = obj.attributes.type;
+        var reference = isReference(objType, key);
+        if (reference) {
+          var refTo = getReferenceTo(objType, key);
+          if(dataObjects[objType].order <= dataObjects[refTo].order) {
+            dataObjects[objType].order = dataObjects[refTo].order + 1;
+            dataObjects[refTo].saveRefs = true;
+            dataObjects[objType].resolveRefs = true;
+          }
+        }
         if (fieldValue.indexOf("@") !== 0) {
-          if (isReference(obj.attributes.type, key)) {
-            var refTo = getReferenceTo(obj.attributes.type, key);
+          if (reference) {
+            var refTo = getReferenceTo(objType, key);
             var id = obj[key];
             var ref = mapOfRefObjects[refTo][id];
             obj[key] = "@" + ref;
