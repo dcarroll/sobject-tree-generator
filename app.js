@@ -1,20 +1,66 @@
-var dataObj = require(`./${process.argv[2]}`);
+var dataObj,
+    rootType,
+    compositeObj;
+    index = 0,
+    metaDatas = {},
+    outputObjects = {},
+    args = {},
+    dataObjects = {},
+    mapOfRefObjects = {};
 
-//var dataObj = JSON.parse(data);
-var metaDatas = {};
-var outputObjects = {};
+var path = require("path");
+var fs = require("fs");
 
+// Sample query
+var sql1 = `
+Select Id, Name, Industry, (Select FirstName, LastName, Email, Phone From Contacts) From Account
+`;
+var sql2 = `
+Select Id, Name, Industry, (Select Status, Origin, Subject From Cases), (Select FirstName, LastName, Email, Phone From Contacts) From Account
+`;
+
+/*
+  app.js -soql:<soql, or file> -f or -p -prefix:<some file prefix>
+*/
 var main = function() {
-  if (process.argv.length < 5) {
-    console.log(process.argv.length);
-    console.log("Run the command like \nnode app.js <input data file> <output data file> [plan, files]");
+  mapifyArgs();
+  if ( (args.soql && args.f) || 
+       (args.soql && args.p) ) {
+    if (args.soql.toLowerCase().trim().indexOf("select") !== 0) {
+      dataObj = require(`${path.resolve(args.soql)}`);
+      if (dataObj.soql) {
+        // This is a not a data file, but rather a stored query
+        dataObj = runQuery(dataObj.soql);
+      }
+    } else {
+      dataObj = runQuery(args.soql);
+    }
+
+    processObjectList(dataObj);
+
+  } else {
+    console.log("Run the command like \n" + 
+      "node app.js in:<input data file> format:[plan, files]\n" +
+      " or " +
+      "node app.js soql:<SOQL> format:[plan, files]");
     return;
-  }
-  if (process.argv[4] === "files") {
-    processObjectList2(runQuery("Select Id, Name, Industry, (Select FirstName, LastName, Email, Phone From Contacts) From Account"));
   }
 }
 
+var mapifyArgs = function() {
+  process.argv.forEach(function(arg) {
+    if (arg.indexOf(":") > 0) {
+      args[arg.split(":")[0]] = arg.split(":")[1];
+    } else if (arg.indexOf("-") === 0) {
+      args[arg.substring(1)] = arg;
+    }
+  });
+}
+
+/*************************************************************
+    These methods use the Force CLI to query data or metadata
+    The metadata is cached after the first time it is queried
+**************************************************************/
 var runQuery = function(soql) {
   var cp = require('child_process');
   var cmd = 'force query "' + soql + '" --format:json'
@@ -46,13 +92,13 @@ var isQueryResult = function(objectName, fieldName) {
 	return result;
 }
 
-var isEmail = function(objectName, fieldName) {
+var isSpecificType = function(objectName, fieldName, fieldType) {
   var result = false;
   var md = getMetadata(objectName);
   for (var i=0;i<md.fields.length;i++) {
     fld = md.fields[i];
-    if (fld.name === fieldName) {
-      if (fld.type === "email") {
+    if (fld.name.toLowerCase() === fieldName.toLowerCase()) {
+      if (fld.type.toLowerCase() === fieldType.toLowerCase()) {
         result = true;
         break;
       }
@@ -61,44 +107,162 @@ var isEmail = function(objectName, fieldName) {
   return result;
 }
 
-var getRelationshipFieldName = function(objectName, parentName) {
-	var md = getMetadata(objectName);
-	var result;
-	md.fields.some(function(field) {
-		if (field.type === "reference") {
-			for (var i=0;i<field.referenceTo.length;i++) {
-				if (field.referenceTo[i] === parentName) {
-					result = field.name;
-					return true;
-				}
-			}
-		}
-	});
-	return result;
+var isReference = function(objectName, fieldName) {
+  return isSpecificType(objectName, fieldName, "reference");
 }
-var rootType;
-var compositeObj;
-var index = 0;
 
-var processObjectList2 = function(rootObj) {
-  var cobj = processObjectArray(rootObj);
-  writeFile(process.argv[3], cobj);
-  console.log(process.argv[3] + " created.");
+var isEmail = function(objectName, fieldName) {
+  return isSpecificType(objectName, fieldName, "email");
+}
+
+var getReferenceTo = function(objectName, fieldName) {
+  var md = getMetadata(objectName);
+  var result;
+  md.fields.some(function(field) {
+    if (field.name === fieldName) {
+      for (var i=0;i<field.referenceTo.length;i++) {
+        result = field.referenceTo[i];
+        return true;
+      }
+    }
+  });
+  return result;
+}
+
+var processObjectList = function(rootObj) {
+  getObjectsIncludedInData(rootObj);
+  var cobj = doRefReplace(processObjectArray(rootObj).records);
+  console.log(JSON.stringify(cobj, null, 2));
+  if (args.p) {
+    splitIntoFiles(cobj);
+  }
+}
+
+var getObjectsIncludedInData = function(rootObj) {
+  // Scan the data set, we only need to scan the top level
+  dataObjects[rootObj[0].attributes.type] = rootObj[0].attributes.type;
+  for (var i=0;i<rootObj.length;i++) {
+    var record = rootObj[i];
+    for (var key in record) {
+      if (record[key] !== null) {
+        if (record[key].records) {
+          // Found a related object, add to map
+          if (!dataObjects[key]) {
+            dataObjects[record[key].records[0].attributes.type] = record[key].records[0].attributes.type;
+          }
+        }
+      }
+    }
+  }
+}
+
+var addObjectRef = function(obj, refId) {
+  var refObj = {};
+  var path = require("path");
+  refObj["id"] = path.basename(obj.attributes.url);
+  refObj["ref"] = refId;
+  if (typeof mapOfRefObjects[obj.attributes.type] === "undefined") {
+    mapOfRefObjects[obj.attributes.type] = {}
+  }
+  mapOfRefObjects[obj.attributes.type][refObj.id] = refObj.ref;
+}
+
+var splitIntoFiles = function(cObj) {
+  // Walk the final data set and split out into files.
+  // The main queried object is the parent, and has a different
+  // saveRefs and resolveRefs values.  All the references have 
+  // been created at this point.
+  var objects = {};
+  var dataPlan = [];
+  var masterType;
+
+  cObj.records.forEach(function(masterRecord) {
+    masterType = masterRecord.attributes.type;
+    if (typeof objects[masterType] === "undefined") {
+      objects[masterType] = { records: [] };
+    }
+    for (var key in masterRecord) {
+      if (masterRecord[key].records) {
+        // This is a set of child records, need to add to the map of arrays
+        var children = masterRecord[key];
+        var childType = children.records[0].attributes.type;
+        if (typeof objects[childType] === "undefined") {
+          objects[childType] = { records: [] };
+        }
+        children.records.forEach(function(child) {
+          objects[childType].records.push(child);
+        });
+        delete masterRecord[key];
+      } 
+    }
+    objects[masterType].records.push(masterRecord);
+  });
+
+  Object.keys(objects).forEach(function(key) {
+    dataPlan.push(addDataPlanPart(key, true, true, key + "s.json", objects[key]));
+  });
+  if (args.prefix) {
+    writeFile(args.prefix + "data-plan.json", dataPlan);
+  } else {
+    writeFile("data-plan.json", dataPlan);
+  }
+}
+
+var addDataPlanPart = function(type, saveRefs, resolveRefs, fileName, sObject) {
+  if (args.prefix) {
+    fileName = args.prefix + fileName;
+  }
+  var dataPlanPart = { sobject: type,
+                       saveRefs: saveRefs,
+                       resolveRefs: resolveRefs,
+                       files: [ fileName ]
+                     };
+  writeFile(fileName, sObject);
+  return dataPlanPart;
+}
+
+var doRefReplace = function(cObj) {
+  cObj.forEach(function(obj) {
+    for (var key in obj) {
+      if (obj[key].records) {
+        // These are children
+        doRefReplace(obj[key].records);
+      } else {
+        var fieldValue = obj[key].toString();
+        if (fieldValue.indexOf("@") !== 0) {
+          if (isReference(obj.attributes.type, key)) {
+            var refTo = getReferenceTo(obj.attributes.type, key);
+            var id = obj[key];
+            var ref = mapOfRefObjects[refTo][id];
+            obj[key] = "@" + ref;
+          }
+        } else {
+          //delete obj[key];
+        }
+      }
+    }
+  });
+  return { records: cObj };
 }
 
 var processObjectArray = function(rootObj) {
   var cObj = { records: [] };
 
   rootObj.forEach(function(obj) {
+    var objRefId = "ref" + index++;
     var record = { attributes: {
       type: obj.attributes.type,
-      referenceId: "ref" + index++ 
+      referenceId: objRefId 
     }};
     
+    addObjectRef(obj, objRefId);
+
     for (var key in obj) {
       if (key !== "attributes" && key !== "Id") {
         if (isQueryResult(obj.attributes.type, key)) {
-          record[key] = processObjectArray(obj[key].records);
+          if (obj[key] !== null) {
+            record[key] = processObjectArray(obj[key].records);
+          }
         } else {
           if (obj[key] !== null) {
             if (isEmail(obj.attributes.type, key)) {
@@ -106,10 +270,35 @@ var processObjectArray = function(rootObj) {
                 record[key] = obj[key];
               }
             } else {
-              record[key] = obj[key];
+              if (isReference(obj.attributes.type, key)) {
+                // Reference to what??
+                var refTo = getReferenceTo(obj.attributes.type, key);
+                // Is this a reference to an object in the data???
+                if (dataObjects[refTo]) {
+                  // add ref to replace the value
+                  var id = obj[key];
+                  var refObject = mapOfRefObjects[refTo];
+                  if (typeof refObject !== "undefined") {
+                    var ref = mapOfRefObjects[refTo][obj[key]];
+                    if (typeof ref === "undefined") {
+                      record[key] = id;
+                    } else {
+                      record[key] = "@" + ref;
+                    }
+                  } else if (typeof refObject === "undefined" ) {
+                    record[key] = id;
+                  } else {
+                    record[key] = "@refreplace";
+                  }
+                }
+              } else {
+                record[key] = obj[key];
+              }
             }
           }
         }
+      } else if (key === "attributes") {
+        addObjectRef(obj, objRefId);
       }
     }
     
@@ -118,106 +307,21 @@ var processObjectArray = function(rootObj) {
   return cObj;
 }
 
-var processObjectList = function(rootObj, referenceId, parentReference) {
-	if (Array.isArray(rootObj)) {
-		rootType = rootObj[0].attributes.type;
-		getMetadata(rootType)
-		console.log("Processing a " + rootType + " query.\n");
-		rootObj.forEach(function(obj) {
-      outputObject = { attributes:
-                        { 
-                          type: rootType, 
-                          referenceId: referenceId || obj.Id 
-                        }
-                      };
-      outputObjects[obj.Id] = outputObject;
-			for (var key in obj) {
-				if (key === "attributes") {
-					// Got some attributes, we want to do something with this.
-					// it will have a type and url in it.
-				} else {
-					if (isQueryResult(rootType, key) === true) {
-						// This should be child records. We could go re-entrant here
-						var qr = obj[key];
-						var parentReferenceField = getRelationshipFieldName(qr.records[0].attributes.type, rootType);
-
-						processObjectList(obj[key].records, obj.Id, { name: parentReferenceField, key: obj.Id});
-					} else {
-						// Regular field value
-            if (key !== "Id") {
-              outputObjects[obj.Id][key] = obj[key];
-            }
-					}
-				}
-        if (parentReference) {
-          outputObjects[obj.Id][parentReference.name] = "@" + parentReference.key;
-        }
-			}
-		})
-	}
-}
-
-var finalList = {};
-
-var postProcessObjectList = function() {
-  var i = 0;  
-    Object.keys(outputObjects).forEach(function(key) {
-      obj = outputObjects[key];
-      if (!finalList[obj.attributes.type]) {
-        finalList[obj.attributes.type] = []
-      } 
-      finalList[obj.attributes.type].push(obj);
-    });
-    finalList;
-}
-
 var validateEmail = function(email) {
     var re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
     return re.test(email);
 }
 
-var writeFile = function(filename, data) {
+var writeFile = function(filename, jsonObject) {
   var fs = require('fs');
-    fs.writeFile(filename, JSON.stringify(data, null, 4), function(err) {
+    fs.writeFile(filename, JSON.stringify(jsonObject, null, 2), "utf-8", function(err) {
       if (err) {
         return console.log(err);
       }
     });  
 }
 
-var writeFiles = function() {
-  var fs = require('fs');
-  var plan = [];
-  Object.keys(finalList).forEach(function(key) {
-    fileName = key + "s.json";
-    var output = { records: finalList[key] };
-    fs.writeFile(fileName, JSON.stringify(output, null, 4), function(err) {
-      if (err) {
-        return console.log(err);
-      }
-    });
-    aplan = {sobject: key, files: [ fileName ] };
-    if (rootType === key) {
-      aplan["saveRefs"] = true;
-    } else {
-      aplan["resolveRefs"] = true;
-    }
-    plan.push(aplan)
-    console.log("Created " + fileName);
-  });
-  fs.writeFile("test_plan.json", JSON.stringify(plan, null, 4), function(err) {
-    if (err) {
-      return console.log(err);
-    }
-  });
-}
 main();
-//processObjectList2(dataObj);
-//postProcessObjectList();
-//writeFiles();
-//console.log(process.argv[2], process.argv[3]);
-//console.log(JSON.stringify(compositeObj, null, 4));
-//console.log(data);
 
 
 

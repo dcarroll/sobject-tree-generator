@@ -1,0 +1,26 @@
+[
+  {
+    "sobject": "Account",
+    "saveRefs": true,
+    "resolveRefs": true,
+    "files": [
+      "testing_Accounts.json"
+    ]
+  },
+  {
+    "sobject": "Case",
+    "saveRefs": true,
+    "resolveRefs": true,
+    "files": [
+      "testing_Cases.json"
+    ]
+  },
+  {
+    "sobject": "Contact",
+    "saveRefs": true,
+    "resolveRefs": true,
+    "files": [
+      "testing_Contacts.json"
+    ]
+  }
+]
