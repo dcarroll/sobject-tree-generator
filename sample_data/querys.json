@@ -1,3 +1,3 @@
 {
-	"soql": "Select Id, Name, Industry, (Select Status, Origin, Subject, AccountId, ContactId From Cases), (Select FirstName, LastName, Email, Phone From Contacts) From Account"
+	"soql": "Select Id, Name, (Select Status, Origin, Subject, AccountId, ContactId From Cases), (Select FirstName, LastName, Email, Phone, AccountId From Contacts) From Account"
 }
