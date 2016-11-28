@@ -2,7 +2,7 @@
 
 This is proof of concept only
 
-To try this out you need to have the Force CLI installed and be logged in to the org that you want to pull data from.
+To try this out you need to have the [Force CLI](https://developer.salesforce.com/tools/forcecli) installed and be logged in to the org that you want to pull data from.
 This is a command line POC.  The options and flags are:
 
 * soql:<soql text> - This can be a valid SOQL string or the path/name to a file containing a SOQL string.
